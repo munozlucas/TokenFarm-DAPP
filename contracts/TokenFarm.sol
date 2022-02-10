@@ -4,12 +4,15 @@ pragma solidity ^0.8.4;
 
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@chainlink/contracts/src/v0.8/interfaces/AggregatorV3Interface.sol";
+
 
 contract TokenFarm is Ownable {
     // tokenAddress => (userAddress => Bbalance)
     mapping(address => mapping(address => uint256)) public stakingBalance;
     // se utiliza para saber cuantos tokens con balance > 0 tiene la cuenta
     mapping(address => uint256) public uniqueTokensStaked;
+    mapping(address => address) public tokenPriceFeedMapping;
     // todo: sacar del mapping una vez que saca todo el balance
     // necesito que sea array ya que tengo que recorrerlo en issueTokens
     address[] public stakers;
@@ -51,10 +54,6 @@ contract TokenFarm is Ownable {
         }
     }
 
-    function addAllowedTokens(address _token) public onlyOwner {
-        allowedTokens.push(_token);
-    }
-
     /**
      * Si stakingBalance[_token][_user] = 0 significa que en algun momento
      * quitó los fondos de ese token
@@ -79,6 +78,10 @@ contract TokenFarm is Ownable {
         }
     }
 
+    /**
+     * Devuelve el valor en tokens que el usuario tiene acumulado en
+     * todos los stakes
+     */
     function getUserTotalValue(address _user) public view returns (uint256) {
         uint256 totalValue = 0;
         require(uniqueTokensStaked[_user] > 0, "No tokens staked!");
@@ -96,5 +99,58 @@ contract TokenFarm is Ownable {
         }
 
         return totalValue;
+    }
+
+    /**
+     * - Devuelve el valor en tokens que el usuario tiene acumulado en ese token
+     * - 1 dappToken = 1 DAI
+     * - price of the token * stakingBalance of de user
+     */
+    function getUserSingleTokenValue(address _user, address _token)
+        public
+        view
+        returns (uint256)
+    {
+        if (uniqueTokensStaked[_user] <= 0) {
+            return 0;
+        }
+        (uint256 price, uint256 decimals) = getTokenValue(_token);
+        // 10 DAI * 1 / 10 ^^ 0 = 10 dappTokens
+        return ((stakingBalance[_token][_user] * price) / (10**decimals));
+    }
+
+    /**
+     * Cunsulta el precio del token en priceFeed para luego calcular la cantidad
+     * de dappToken
+     */
+    function getTokenValue(address _token)
+        public
+        view
+        returns (uint256, uint256)
+    {
+        address priceFeedAddress = tokenPriceFeedMapping[_token];
+        AggregatorV3Interface priceFeed = AggregatorV3Interface(
+            priceFeedAddress
+        );
+        (, int256 price, , , ) = priceFeed.latestRoundData();
+        uint256 decimals = uint256(priceFeed.decimals());
+        return (uint256(price), decimals);
+    }
+
+    /**
+     * ============================================
+     * ============================================
+     * Solo el owner puede llamar estas funciones
+     */
+
+    function setPriceFeedContract(address _token, address _priceFeed)
+        public
+        onlyOwner
+    {
+        tokenPriceFeedMapping[_token] = _priceFeed;
+    }
+
+    function addAllowedTokens(address _token) public onlyOwner {
+        allowedTokens.push(_token);
     }
 }
