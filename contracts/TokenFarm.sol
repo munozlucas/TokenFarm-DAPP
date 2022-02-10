@@ -10,10 +10,16 @@ contract TokenFarm is Ownable {
     mapping(address => mapping(address => uint256)) public stakingBalance;
     // se utiliza para saber cuantos tokens con balance > 0 tiene la cuenta
     mapping(address => uint256) public uniqueTokensStaked;
-    mapping(address => bool) public allowedTokens;
     // todo: sacar del mapping una vez que saca todo el balance
     // necesito que sea array ya que tengo que recorrerlo en issueTokens
     address[] public stakers;
+    address[] public allowedTokens;
+    IERC20 public dappToken;
+
+    // creo el constructor para saber cual es la direccion del token reward
+    constructor(address _dappTokenAddress) public {
+        dappToken = IERC20(_dappTokenAddress);
+    }
 
     function stakeTokens(uint256 _amount, address _token) public {
         require(_amount > 0, "Amount must be more than 0");
@@ -33,14 +39,20 @@ contract TokenFarm is Ownable {
     }
 
     function tokenIsAllowed(address _token) public returns (bool) {
-        if (allowedTokens[_token] == true) {
-            return true;
+        for (
+            uint256 allowedTokensIndex = 0;
+            allowedTokensIndex < allowedTokens.length;
+            allowedTokensIndex++
+        ) {
+            if (allowedTokens[allowedTokensIndex] == _token) {
+                return true;
+            }
+            return false;
         }
-        return false;
     }
 
     function addAllowedTokens(address _token) public onlyOwner {
-        allowedTokens[_token] = true;
+        allowedTokens.push(_token);
     }
 
     /**
@@ -65,5 +77,24 @@ contract TokenFarm is Ownable {
             // based on their total value locked
             dappToken.transfer(recipient, userTotalValue);
         }
+    }
+
+    function getUserTotalValue(address _user) public view returns (uint256) {
+        uint256 totalValue = 0;
+        require(uniqueTokensStaked[_user] > 0, "No tokens staked!");
+        for (
+            uint256 allowedTokensIndex = 0;
+            allowedTokensIndex < allowedTokens.length;
+            allowedTokensIndex++
+        ) {
+            totalValue =
+                totalValue +
+                getUserSingleTokenValue(
+                    _user,
+                    allowedTokens[allowedTokensIndex]
+                );
+        }
+
+        return totalValue;
     }
 }
