@@ -6,7 +6,6 @@ import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@chainlink/contracts/src/v0.8/interfaces/AggregatorV3Interface.sol";
 
-
 contract TokenFarm is Ownable {
     // tokenAddress => (userAddress => Bbalance)
     mapping(address => mapping(address => uint256)) public stakingBalance;
@@ -24,11 +23,20 @@ contract TokenFarm is Ownable {
         dappToken = IERC20(_dappTokenAddress);
     }
 
+    function unstakeTokens(address _token) public {
+        uint256 balance = stakingBalance[_token][msg.sender];
+        require(balance > 0, "Staking balance cannot be 0");
+        IERC20(_token).transfer(msg.sender, balance);
+        stakingBalance[_token][msg.sender] = 0;
+        uniqueTokensStaked[msg.sender] = uniqueTokensStaked[msg.sender] - 1;
+        // TODO: could also update stakers array, to remove the user if they no longer have anything staked. But it's not a problem since in issueTokens we check if the user has any tokens staked
+    }
+
     function stakeTokens(uint256 _amount, address _token) public {
         require(_amount > 0, "Amount must be more than 0");
         require(tokenIsAllowed(_token), "Token is currenttly not allowed");
         IERC20(_token).transferFrom(msg.sender, address(this), _amount);
-        updateUniqueTokensStaked(msg.sender, _token);
+        bool addedUniqueToken = updateUniqueTokensStaked(msg.sender, _token);
         stakingBalance[_token][msg.sender] =
             stakingBalance[_token][msg.sender] +
             _amount;
@@ -36,7 +44,8 @@ contract TokenFarm is Ownable {
          * agrego a la lista de stakers si solo tiene un token,
          * porque está ingresando por primera vez
          */
-        if (uniqueTokensStaked[msg.sender] == 1) {
+        if (addedUniqueToken && uniqueTokensStaked[msg.sender] == 1) {
+            // this was the f irst unique token staked for the user
             stakers.push(msg.sender);
         }
     }
@@ -58,10 +67,15 @@ contract TokenFarm is Ownable {
      * Si stakingBalance[_token][_user] = 0 significa que en algun momento
      * quitó los fondos de ese token
      */
-    function updateUniqueTokensStaked(address _user, address _token) internal {
+    function updateUniqueTokensStaked(address _user, address _token)
+        internal
+        returns (bool)
+    {
         if (stakingBalance[_token][_user] <= 0) {
             uniqueTokensStaked[_user] = uniqueTokensStaked[_user] + 1;
+            return true;
         }
+        return false;
     }
 
     function issueToken() public onlyOwner {
